@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ICS QR Code Gen 2</title>
+<link rel="icon" type="image/png" href="ICSLogo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
+<style>
+  :root{
+    --ink:#17181c;
+    --paper:#f2f1ea;
+    --card:#ffffff;
+    --laser:#e23a1e;
+    --gray:#8f8e86;
+    --line:#d9d7cc;
+    --ok:#1d7a4f;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --sans:'Space Grotesk',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px}
+
+  /* ---------- header ---------- */
+  header{
+    border-bottom:2px solid var(--ink);
+    background:var(--card);
+    padding:18px 28px;
+    display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  }
+  .brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .brand h1{font-size:22px;font-weight:700;letter-spacing:-.02em}
+  .brand .tag{font-family:var(--mono);font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.12em}
+  #brandBarcode{width:38px;height:38px}
+
+  /* ---------- layout ---------- */
+  main{display:grid;grid-template-columns:340px 1fr;gap:0;min-height:calc(100vh - 75px)}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  aside{
+    border-right:2px solid var(--ink);
+    background:var(--card);
+    padding:22px;
+  }
+  .stage{padding:26px 30px;overflow-x:hidden}
+
+  /* ---------- panels ---------- */
+  .panel{margin-bottom:26px}
+  .panel-title{
+    font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;
+    letter-spacing:.14em;color:var(--ink);
+    display:flex;align-items:center;gap:8px;margin-bottom:12px;
+  }
+  .panel-title::before{content:"";width:10px;height:10px;background:var(--ink)}
+  label.field{display:block;font-size:12.5px;color:var(--gray);margin:10px 0 4px}
+  select,input[type=number],input[type=text]{
+    width:100%;padding:8px 10px;font-family:var(--mono);font-size:13px;
+    border:1.5px solid var(--ink);border-radius:0;background:var(--card);color:var(--ink);
+  }
+  select:focus,input:focus,button:focus-visible{outline:3px solid var(--laser);outline-offset:1px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .check{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px}
+  .check input{width:15px;height:15px;accent-color:var(--ink)}
+
+  /* dropzone */
+  .drop{
+    border:2px dashed var(--ink);padding:22px 14px;text-align:center;cursor:pointer;
+    background:repeating-linear-gradient(45deg,transparent,transparent 10px,#00000005 10px,#00000005 20px);
+    transition:background .15s;
+  }
+  .drop.drag{background:#e23a1e14;border-color:var(--laser)}
+  .drop strong{display:block;font-size:14px;margin-bottom:4px}
+  .drop span{font-family:var(--mono);font-size:11px;color:var(--gray)}
+  .file-meta{font-family:var(--mono);font-size:11.5px;margin-top:8px;color:var(--ok);word-break:break-all}
+  .link-btn{background:none;border:none;color:var(--laser);font-family:var(--mono);font-size:11.5px;cursor:pointer;text-decoration:underline;margin-top:8px;padding:0}
+
+  /* buttons */
+  .btn{
+    display:block;width:100%;padding:12px;margin-top:10px;cursor:pointer;
+    font-family:var(--sans);font-weight:700;font-size:14px;letter-spacing:.01em;
+    border:2px solid var(--ink);background:var(--ink);color:var(--paper);
+    transition:transform .05s;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn.secondary{background:var(--card);color:var(--ink)}
+  .btn:disabled{opacity:.35;cursor:not-allowed}
+  .btn .kbd{font-family:var(--mono);font-weight:400;font-size:11px;opacity:.7}
+
+  /* ---------- stage ---------- */
+  .stage-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+  .stage-head h2{font-size:17px;font-weight:700}
+  .counts{font-family:var(--mono);font-size:12px;color:var(--gray)}
+  .counts .bad{color:var(--laser);font-weight:600}
+  .empty{
+    border:2px dashed var(--line);padding:70px 20px;text-align:center;color:var(--gray);
+    font-family:var(--mono);font-size:13px;line-height:1.9;
+  }
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cell,280px),1fr));gap:18px}
+  .label-card{background:transparent}
+  .label-card .paper{
+    background:#fff;border:1px solid var(--line);
+    box-shadow:0 1px 0 #00000014,0 6px 14px -8px #00000033;
+    width:100%;
+  }
+  .label-card img,.label-card canvas{display:block;width:100%;height:auto}
+  .label-card .cap{font-family:var(--mono);font-size:10.5px;color:var(--gray);margin-top:6px;display:flex;justify-content:space-between;gap:6px}
+  .label-card .cap .err{color:var(--laser)}
+  .note{font-family:var(--mono);font-size:11.5px;color:var(--gray);margin-top:16px;line-height:1.7}
+  .hint{font-size:12px;color:var(--gray);line-height:1.55;margin-top:8px}
+
+  /* toast */
+  #toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:12.5px;
+    padding:10px 18px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;max-width:90vw;
+  }
+  #toast.show{opacity:1}
+
+  /* ---------- google auth ---------- */
+  #authGate{
+    position:fixed;inset:0;z-index:100;background:var(--paper);
+    display:flex;align-items:center;justify-content:center;padding:20px;
+  }
+  .gate-card{
+    background:var(--card);border:2px solid var(--ink);padding:36px 32px;
+    max-width:420px;width:100%;text-align:center;
+    box-shadow:8px 8px 0 var(--ink);
+  }
+  .gate-card h2{font-size:20px;margin:14px 0 6px;letter-spacing:-.02em}
+  .gate-card p{font-family:var(--mono);font-size:12px;color:var(--gray);line-height:1.7;margin-bottom:20px}
+  .gate-card p.denied{color:var(--laser);font-weight:600}
+  #gsiBtn{display:flex;justify-content:center}
+  #gateBarcode{width:34px;height:34px}
+  .user-chip{
+    display:flex;align-items:center;gap:8px;
+    border:1.5px solid var(--ink);padding:5px 8px;background:var(--card);
+  }
+  .user-chip img{width:22px;height:22px;border-radius:50%}
+  .user-chip span{font-family:var(--mono);font-size:11.5px}
+  .chip-btn{
+    font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;
+    border:none;background:var(--ink);color:var(--paper);padding:4px 8px;cursor:pointer;
+  }
+  .btn.drive{border-color:#1a73e8;color:#1a73e8;background:var(--card)}
+  .btn.drive:disabled{opacity:.35}
+  .drive-row{display:grid;grid-template-columns:90px 1fr;gap:10px;align-items:end;margin-top:10px}
+  .drive-row .btn{margin-top:0}
+
+  /* ---------- print ---------- */
+  #printRoot{display:none}
+  @media print{
+    body>header,body>main,#toast,#authGate{display:none !important}
+    html,body{background:#fff}
+    #printRoot{display:block}
+    .print-page{
+      width:100%;height:100vh;
+      display:flex;align-items:center;justify-content:center;
+      page-break-after:always;break-after:page;overflow:hidden;
+    }
+    .print-page:last-child{page-break-after:auto;break-after:auto}
+    .print-page img{width:100%;height:100%;object-fit:contain}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <img src="ICSLogo.png" alt="Logo" class="header-img">
+    <h1>ICS QR Code Gen 2</h1>
+    <span class="tag">CSV / Excel &rarr; Zebra-ready QR labels</span>
+  </div>
+
+  <canvas id="brandBarcode" aria-hidden="true"></canvas>
+  <div class="user-chip" id="userChip" hidden>
+    <img id="userPic" alt="">
+    <span id="userEmail"></span>
+    <button class="chip-btn" id="signOutBtn">Sign out</button>
+  </div>
+
+<style>
+  /* 2. Align them side-by-side using Flexbox */
+  .brand {
+    display: flex;
+    align-items: center; /* Vertically centers the image and text */
+    gap: 5px;           /* Adds clean spacing between the image and text */
+  }
+
+</style>
+
+</header>
+
+<main>
+  <aside aria-label="Settings">
+
+    <div class="panel">
+      <div class="panel-title">1 &middot; Data</div>
+      <div class="drop" id="drop" role="button" tabindex="0" aria-label="Upload CSV or Excel file">
+        <strong>Drop CSV / Excel here</strong>
+        <span>.csv &middot; .xlsx &middot; .xls &mdash; or click to browse</span>
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,.tsv" hidden>
+        <div class="file-meta" id="fileMeta"></div>
+      </div>
+      <button class="link-btn" id="sampleBtn">No file yet? Load sample data</button>
+      <button class="btn drive" id="driveOpenBtn">▲ Open from Google Drive</button>
+
+      <div id="mapping" hidden>
+        <label class="field" for="sheetSel">Sheet</label>
+        <select id="sheetSel"></select>
+        <label class="field" for="valueCol">Barcode value column <b style="color:var(--laser)">*</b></label>
+        <select id="valueCol"></select>
+        <label class="field" for="descCol">Description column</label>
+        <select id="descCol"></select>
+        <label class="field" for="qtyCol">Copies column (print quantity)</label>
+        <select id="qtyCol"></select>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">2 &middot; QR code &amp; layout</div>
+      <label class="field" for="ecLevel">Error correction</label>
+      <select id="ecLevel">
+        <option value="L">L &mdash; low (7%)</option>
+        <option value="M">M &mdash; medium (15%)</option>
+        <option value="Q">Q &mdash; quartile (25%)</option>
+        <option value="H" selected>H &mdash; high (30%)</option>
+      </select>
+      <div class="check"><input type="checkbox" id="showValue" checked><label for="showValue">Print value beside logo (top row)</label></div>
+      <label class="field" for="customText">Custom text (vertical, right of QR)</label>
+      <input type="text" id="customText" maxlength="60" placeholder="e.g. QC PASSED &middot; LOT 2026-07">
+      <label class="field" for="logoUrl">Logo image location (URL)</label>
+      <input type="text" id="logoUrl" placeholder="https://yoursite.com/logo.png">
+      <button class="link-btn" id="logoBrowse" type="button">&hellip;or upload a logo file</button>
+      <input type="file" id="logoFile" accept="image/*" hidden>
+      <div class="row2">
+        <div>
+          <label class="field" for="logoPct">Logo height (% of label)</label>
+          <input type="number" id="logoPct" min="8" max="45" step="1" value="20">
+        </div>
+        <div>
+          <label class="field" for="descPos">Description</label>
+          <select id="descPos">
+            <option value="none" selected>Hide</option>
+            <option value="bottom">Below QR</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">If a logo URL refuses to load, that site blocks cross-site image use &mdash; upload the file instead. The logo and value share the top row; the QR sits below with the custom text reading upward on its right, as in your mockup.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">3 &middot; Label &amp; printer</div>
+      <label class="field" for="preset">Label size preset</label>
+      <select id="preset">
+        <option value="4x6">4 &times; 6 in &mdash; shipping (ZD421 / ZT230)</option>
+        <option value="4x3">4 &times; 3 in</option>
+        <option value="4x2">4 &times; 2 in</option>
+        <option value="4x1">4 &times; 1 in</option>
+        <option value="2.25x1.25" selected>2.25 &times; 1.25 in &mdash; retail (GK888t)</option>
+        <option value="2x1">2 &times; 1 in</option>
+        <option value="1.5x1">1.5 &times; 1 in</option>
+        <option value="custom">Custom&hellip;</option>
+      </select>
+      <div class="row2">
+        <div>
+          <label class="field" for="labW">Width</label>
+          <input type="number" id="labW" min="0.3" step="0.05" value="2.25">
+        </div>
+        <div>
+          <label class="field" for="labH">Height</label>
+          <input type="number" id="labH" min="0.3" step="0.05" value="1.25">
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label class="field" for="unit">Unit</label>
+          <select id="unit"><option value="in" selected>inches</option><option value="mm">mm</option></select>
+        </div>
+        <div>
+          <label class="field" for="dpi">Printer DPI</label>
+          <select id="dpi">
+            <option value="203" selected>203 (ZD421 / GK888t)</option>
+            <option value="300">300 (ZT230-300)</option>
+            <option value="600">600</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">In the print dialog set <b>margins: none</b>, <b>scale: 100%</b>, and pick the matching label size in your Zebra driver. Each label prints on its own page so the printer advances one label at a time.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">4 &middot; Output</div>
+      <button class="btn secondary" id="downloadBtn" disabled>Download PNGs (.zip)</button>
+      <button class="btn drive" id="driveZipBtn" disabled>▲ Save PNGs (.zip) to Drive</button>
+      <div class="drive-row">
+        <div>
+          <label class="field" for="driveSaveFmt">Format</label>
+          <select id="driveSaveFmt"><option value="xlsx">.xlsx</option><option value="csv">.csv</option></select>
+        </div>
+        <button class="btn drive" id="driveSaveBtn" disabled>▲ Save data to Drive</button>
+      </div>
+      <button class="btn" id="printBtn" disabled>Print preview &amp; print</button>
+    </div>
+  </aside>
+
+  <section class="stage" aria-label="Label preview">
+    <div class="stage-head">
+      <h2>Preview</h2>
+      <div class="counts" id="counts"></div>
+    </div>
+    <div id="previewArea">
+      <div class="empty">
+        NO DATA LOADED<br>
+        Upload a CSV or Excel file on the left,<br>
+        map the barcode column, and labels render here.
+      </div>
+    </div>
+    <p class="note" id="previewNote" hidden></p>
+  </section>
+</main>
+
+<div id="printRoot" aria-hidden="true"></div>
+<div id="toast" role="status"></div>
+
+<div id="authGate">
+  <div class="gate-card">
+    <canvas id="gateBarcode" aria-hidden="true"></canvas>
+    <h2>Batch QR Code Studio</h2>
+    <p id="gateMsg">Sign in with an authorized Google account to continue.</p>
+    <div id="gsiBtn"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $ = id => document.getElementById(id);
+const state = {
+  headers: [], rows: [], sheets: null, wb: null,
+  fileName: "", previewCap: 100
+};
+
+/* ---------- helpers ---------- */
+function toast(msg, ms=2600){
+  const t=$("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),ms);
+}
+function inches(){ // label size in inches
+  const u=$("unit").value, w=parseFloat($("labW").value)||1, h=parseFloat($("labH").value)||1;
+  return u==="mm" ? [w/25.4,h/25.4] : [w,h];
+}
+function sanitize(s){ return String(s).replace(/[^\w\-.]+/g,"_").slice(0,60) || "label"; }
+
+/* ================================================================
+   GOOGLE SIGN-IN + DRIVE  —  EDIT THIS BLOCK TO CONFIGURE
+   ================================================================
+   1. In Google Cloud Console create a project, enable the
+      "Google Drive API" and "Google Picker API".
+   2. OAuth consent screen:
+        - Workspace org?  choose "Internal"  → only your domain can sign in.
+        - Otherwise choose "External", keep Publishing status = "Testing",
+          and add each allowed email under "Test users". Google itself
+          will then refuse sign-in for anyone else (real enforcement).
+   3. Create an OAuth Client ID (type: Web application) and add your
+      site's URL under "Authorized JavaScript origins"
+      (e.g. http://localhost:8000 and https://labels.yourcompany.com).
+   4. Create an API key (restrict it to the Picker API + your site).
+   5. Paste both below, list the allowed emails/domains, done.
+   NOTE: the app must be served over http(s) — Google sign-in does not
+   work from a file:// URL. `python -m http.server` is enough for testing.
+   ================================================================ */
+const GOOGLE_CONFIG={
+  CLIENT_ID:"YOUR_CLIENT_ID.apps.googleusercontent.com",
+  API_KEY:"YOUR_API_KEY",
+  ALLOWED_EMAILS:["you@example.com","teammate@example.com"], // exact emails allowed in
+  ALLOWED_DOMAINS:[],            // e.g. ["yourcompany.com"] allows the whole domain
+  REQUIRE_SIGN_IN:false          // sign-in gate OFF in this version — set true to enable it
+};
+const DRIVE_SCOPE="https://www.googleapis.com/auth/drive.file"; // only files this app opens/creates
+
+let gUser=null, gToken=null, tokenClient=null, pickerReady=false;
+
+function emailAllowed(email){
+  email=(email||"").toLowerCase().trim();
+  if(GOOGLE_CONFIG.ALLOWED_EMAILS.some(e=>e.toLowerCase().trim()===email)) return true;
+  return GOOGLE_CONFIG.ALLOWED_DOMAINS.some(d=>email.endsWith("@"+d.toLowerCase().trim()));
+}
+function decodeJwt(t){
+  try{
+    const b=t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
+    const s=atob(b);
+    return JSON.parse(decodeURIComponent(s.split("").map(c=>"%"+("00"+c.charCodeAt(0).toString(16)).slice(-2)).join("")));
+  }catch(e){ return null; }
+}
+function gateMsg(msg,denied){
+  const p=$("gateMsg"); p.textContent=msg; p.classList.toggle("denied",!!denied);
+  $("authGate").style.display="flex";
+}
+function initGoogle(){
+  try{ new QRious({element:$("gateBarcode"),value:"SIGN-IN",size:34,padding:0,background:"transparent",foreground:"#17181c",level:"M"}); }catch(e){}
+  if(!GOOGLE_CONFIG.REQUIRE_SIGN_IN){
+    $("authGate").style.display="none";
+    ["driveOpenBtn","driveZipBtn","driveSaveBtn"].forEach(id=>{ const el=$(id); if(el) el.style.display="none"; });
+    const dr=document.querySelector(".drive-row"); if(dr) dr.style.display="none";
+    return;
+  }
+  if(GOOGLE_CONFIG.CLIENT_ID.indexOf("YOUR_")===0){
+    gateMsg("Setup needed: open this file and paste your OAuth Client ID + API key into GOOGLE_CONFIG (instructions are in the comments there).",true);
+    return;
+  }
+  waitForGsi(0);
+}
+function waitForGsi(tries){
+  if(window.google && google.accounts){ startGsi(); return; }
+  if(tries===4) gateMsg("Loading Google sign-in\u2026");
+  if(tries<20){ setTimeout(()=>waitForGsi(tries+1),300); return; }
+  gateMsg("The Google sign-in script could not load. This is usually an ad-blocker or privacy extension (uBlock, AdGuard, Brave Shields\u2026) or a firewall blocking accounts.google.com. Allow it for this site, then reload the page.",true);
+}
+function startGsi(){
+  google.accounts.id.initialize({client_id:GOOGLE_CONFIG.CLIENT_ID,callback:onCredential});
+  google.accounts.id.renderButton($("gsiBtn"),{theme:"filled_black",size:"large",width:280});
+  tokenClient=google.accounts.oauth2.initTokenClient({client_id:GOOGLE_CONFIG.CLIENT_ID,scope:DRIVE_SCOPE,callback:()=>{}});
+  if(window.gapi) gapi.load("picker",()=>{ pickerReady=true; });
+}
+function onCredential(resp){
+  const p=decodeJwt(resp.credential);
+  if(!p || !p.email){ gateMsg("Could not read the Google account. Try again.",true); return; }
+  if(!emailAllowed(p.email)){
+    google.accounts.id.disableAutoSelect();
+    gateMsg("ACCESS DENIED — "+p.email+" is not on the authorized list. Sign in with a different account.",true);
+    return;
+  }
+  gUser={email:p.email,name:p.name||p.email,picture:p.picture||""};
+  $("userEmail").textContent=gUser.email;
+  if(gUser.picture){ $("userPic").src=gUser.picture; $("userPic").style.display=""; } else $("userPic").style.display="none";
+  $("userChip").hidden=false;
+  $("authGate").style.display="none";
+  toast("Signed in as "+gUser.email);
+}
+$("signOutBtn").addEventListener("click",()=>{
+  if(gToken){ try{ google.accounts.oauth2.revoke(gToken.token,()=>{}); }catch(e){} }
+  gUser=null; gToken=null;
+  try{ google.accounts.id.disableAutoSelect(); }catch(e){}
+  $("userChip").hidden=true;
+  gateMsg("Signed out. Sign in with an authorized Google account to continue.");
+});
+
+/* ---- OAuth token (requested lazily, cached ~1h) ---- */
+function withToken(cb){
+  if(!gUser){ toast("Sign in first."); return; }
+  if(!tokenClient){ toast("Google is not configured yet — see GOOGLE_CONFIG in the file."); return; }
+  if(gToken && Date.now()<gToken.exp){ cb(gToken.token); return; }
+  tokenClient.callback=resp=>{
+    if(resp.error){ toast("Drive authorization failed: "+resp.error); return; }
+    gToken={token:resp.access_token,exp:Date.now()+((resp.expires_in||3600)-60)*1000};
+    cb(gToken.token);
+  };
+  tokenClient.requestAccessToken({hint:gUser.email,prompt:""});
+}
+
+/* ---- open from Drive (Picker) ---- */
+$("driveOpenBtn").addEventListener("click",()=>{
+  if(!GOOGLE_CONFIG.REQUIRE_SIGN_IN && !gUser){ toast("Google Drive needs sign-in — enable REQUIRE_SIGN_IN or sign in."); return; }
+  if(!pickerReady){ toast("Google Picker is still loading — try again in a moment."); return; }
+  withToken(token=>{
+    const mimes=[
+      "application/vnd.google-apps.spreadsheet",
+      "text/csv","text/tab-separated-values",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ].join(",");
+    const view=new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setMimeTypes(mimes).setIncludeFolders(true);
+    new google.picker.PickerBuilder()
+      .setOAuthToken(token)
+      .setDeveloperKey(GOOGLE_CONFIG.API_KEY)
+      .addView(view)
+      .setTitle("Choose a CSV or spreadsheet")
+      .setCallback(onPicked)
+      .build()
+      .setVisible(true);
+  });
+});
+async function onPicked(data){
+  if(data.action!==google.picker.Action.PICKED) return;
+  const doc=data.docs[0];
+  toast("Loading "+doc.name+"…",4000);
+  try{
+    const buf=await fetchDriveFile(doc.id,doc.mimeType);
+    const wb=XLSX.read(buf,{type:"array"});
+    state.wb=wb; state.fileName=doc.name;
+    $("fileMeta").textContent="✓ Drive: "+doc.name;
+    populateSheets(wb);
+    toast("Loaded "+doc.name);
+  }catch(e){ toast("Could not load file: "+e.message); }
+}
+async function fetchDriveFile(id,mime){
+  const isGSheet = mime==="application/vnd.google-apps.spreadsheet";
+  const url = isGSheet
+    ? `https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=${encodeURIComponent("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}`
+    : `https://www.googleapis.com/drive/v3/files/${id}?alt=media`;
+  const r=await fetch(url,{headers:{Authorization:"Bearer "+gToken.token}});
+  if(!r.ok) throw new Error("Drive API error "+r.status);
+  return await r.arrayBuffer();
+}
+
+/* ---- save to Drive ---- */
+async function driveUpload(blob,name,mime,token){
+  const form=new FormData();
+  form.append("metadata",new Blob([JSON.stringify({name,mimeType:mime})],{type:"application/json"}));
+  form.append("file",blob);
+  const r=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name",
+    {method:"POST",headers:{Authorization:"Bearer "+token},body:form});
+  if(!r.ok) throw new Error("Drive API error "+r.status);
+  return await r.json();
+}
+$("driveSaveBtn").addEventListener("click",()=>{
+  if(!state.rows.length){ toast("Load data first."); return; }
+  const fmt=$("driveSaveFmt").value;
+  withToken(async token=>{
+    try{
+      const base=(state.fileName||"barcode-data").replace(/\.(csv|xlsx|xls|tsv)$/i,"");
+      const ws=XLSX.utils.aoa_to_sheet([state.headers,...state.rows]);
+      let blob,name,mime;
+      if(fmt==="csv"){
+        name=base+".csv"; mime="text/csv";
+        blob=new Blob([XLSX.utils.sheet_to_csv(ws)],{type:mime});
+      }else{
+        const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Data");
+        name=base+".xlsx";
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        blob=new Blob([XLSX.write(wb,{bookType:"xlsx",type:"array"})],{type:mime});
+      }
+      toast("Saving "+name+" to Drive…",5000);
+      const f=await driveUpload(blob,name,mime,token);
+      toast("✓ Saved to Drive: "+f.name);
+    }catch(e){ toast("Save failed: "+e.message); }
+  });
+});
+$("driveZipBtn").addEventListener("click",()=>{
+  if(!state.rows.length){ toast("Load data first."); return; }
+  withToken(async token=>{
+    try{
+      toast("Generating PNGs…",6000);
+      const {blob,name,made,skipped}=await buildZip();
+      toast("Uploading zip to Drive…",6000);
+      const f=await driveUpload(blob,name,"application/zip",token);
+      toast(`✓ ${f.name} saved to Drive — ${made} PNGs`+(skipped?` (${skipped} invalid skipped)`:""));
+    }catch(e){ toast("Save failed: "+e.message); }
+  });
+});
+
+
+/* ---------- brand barcode (signature) ---------- */
+try{ new QRious({element:$("brandBarcode"),value:"BATCH-QR-STUDIO",size:38,padding:0,background:"transparent",foreground:"#17181c",level:"M"}); }catch(e){}
+
+/* ---------- file loading ---------- */
+const drop=$("drop"), fileInput=$("fileInput");
+drop.addEventListener("click",()=>fileInput.click());
+drop.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fileInput.click();}});
+["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+drop.addEventListener("drop",e=>{ if(e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener("change",e=>{ if(e.target.files.length) loadFile(e.target.files[0]); });
+
+function loadFile(file){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:"array"});
+      state.wb=wb; state.fileName=file.name;
+      $("fileMeta").textContent="✓ "+file.name;
+      populateSheets(wb);
+    }catch(err){ toast("Could not read file: "+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function populateSheets(wb){
+  const sel=$("sheetSel"); sel.innerHTML="";
+  wb.SheetNames.forEach(n=>{ const o=document.createElement("option"); o.value=n; o.textContent=n; sel.appendChild(o); });
+  sel.parentElement.hidden=false; $("mapping").hidden=false;
+  loadSheet(wb.SheetNames[0]);
+}
+$("sheetSel").addEventListener("change",e=>loadSheet(e.target.value));
+
+function loadSheet(name){
+  const ws=state.wb.Sheets[name];
+  const json=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:""});
+  const rows=json.filter(r=>r.some(c=>String(c).trim()!==""));
+  if(!rows.length){ toast("Sheet is empty."); return; }
+  state.headers=rows[0].map((h,i)=>String(h).trim()||("Column "+(i+1)));
+  state.rows=rows.slice(1);
+  populateMapping();
+  render();
+}
+
+function populateMapping(){
+  const make=(sel,allowNone,guessRx)=>{
+    sel.innerHTML="";
+    if(allowNone){ const o=document.createElement("option"); o.value="-1"; o.textContent="— none —"; sel.appendChild(o); }
+    state.headers.forEach((h,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=h; sel.appendChild(o); });
+    if(guessRx){
+      const g=state.headers.findIndex(h=>guessRx.test(h));
+      if(g>=0) sel.value=String(g);
+    }
+  };
+  make($("valueCol"),false,/code|sku|barcode|upc|ean|id|item.?no/i);
+  make($("descCol"),true,/desc|name|title|product/i);
+  make($("qtyCol"),true,/qty|quantity|copies|count/i);
+  if($("descCol").value==="-1" && state.headers.length>1){
+    // fall back: pick a different column than value for description
+    const v=+$("valueCol").value;
+    const alt=state.headers.findIndex((_,i)=>i!==v);
+    if(alt>=0)$("descCol").value=String(alt);
+  }
+}
+["valueCol","descCol","qtyCol"].forEach(id=>$(id).addEventListener("change",render));
+
+/* ---------- sample data ---------- */
+$("sampleBtn").addEventListener("click",()=>{
+  const data=[["SKU","Description","Qty"],
+    ["4711-0001-A","Stainless Hex Bolt M8x40",2],
+    ["4711-0002-B","Nylon Washer 8mm",1],
+    ["4711-0003-C","Steel Flange Nut M8",3],
+    ["8800-1201-X","Ball Bearing 608ZZ",1],
+    ["8800-1305-Y","Timing Belt GT2 6mm",1],
+    ["9915-0042-Q","Aluminum Bracket L-40",2]];
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Sample");
+  state.wb=wb; state.fileName="sample-data";
+  $("fileMeta").textContent="✓ sample data loaded";
+  populateSheets(wb);
+});
+
+/* ---------- settings ---------- */
+const PRESETS={"4x6":[4,6],"4x3":[4,3],"4x2":[4,2],"4x1":[4,1],"2.25x1.25":[2.25,1.25],"2x1":[2,1],"1.5x1":[1.5,1]};
+$("preset").addEventListener("change",e=>{
+  const p=PRESETS[e.target.value];
+  if(p){ $("unit").value="in"; $("labW").value=p[0]; $("labH").value=p[1]; }
+  render();
+});
+["labW","labH","unit","dpi","ecLevel","showValue","descPos","logoPct"].forEach(id=>{
+  $(id).addEventListener("change",()=>{ if(id==="labW"||id==="labH")$("preset").value="custom"; render(); });
+});
+$("customText").addEventListener("input",()=>{ clearTimeout(state._cth); state._cth=setTimeout(render,250); });
+
+/* ---------- logo loading ---------- */
+function loadLogoFromUrl(url){
+  url=(url||"").trim();
+  if(!url){ state.logo=null; render(); return; }
+  const img=new Image();
+  img.crossOrigin="anonymous";
+  img.onload=()=>{ state.logo={img:img,ready:true}; toast("Logo loaded"); render(); };
+  img.onerror=()=>{ state.logo=null; toast("Could not load logo from that URL (not found, or the site blocks cross-site use). Try uploading the file instead.",4000); render(); };
+  img.src=url;
+}
+$("logoUrl").addEventListener("change",e=>loadLogoFromUrl(e.target.value));
+$("logoBrowse").addEventListener("click",()=>$("logoFile").click());
+$("logoFile").addEventListener("change",e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{ state.logo={img:img,ready:true}; $("logoUrl").value=""; $("logoUrl").placeholder="uploaded: "+f.name; toast("Logo loaded: "+f.name); render(); };
+    img.src=ev.target.result;
+  };
+  r.readAsDataURL(f);
+});
+
+/* ---------- records ---------- */
+function getRecords(){
+  const vi=+$("valueCol").value, di=+$("descCol").value, qi=+$("qtyCol").value;
+  return state.rows.map((r,idx)=>{
+    const value=String(r[vi]??"").trim();
+    const desc=di>=0?String(r[di]??"").trim():"";
+    let qty=qi>=0?parseInt(r[qi],10):1;
+    if(!Number.isFinite(qty)||qty<1)qty=1;
+    return {row:idx+2,value,desc,qty:Math.min(qty,999)};
+  }).filter(r=>r.value!=="");
+}
+
+/* ---------- barcode rendering ---------- */
+// Render a full label onto a canvas at the given DPI. Returns {canvas,error}
+function renderLabel(rec,dpi){
+  const [wIn,hIn]=inches();
+  const W=Math.max(24,Math.round(wIn*dpi)), H=Math.max(24,Math.round(hIn*dpi));
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const ctx=c.getContext("2d");
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+
+  const pad=Math.round(Math.min(W,H)*0.05);
+  const err=quickInvalidReason(rec.value);
+  if(err){
+    ctx.fillStyle="#e23a1e";
+    ctx.font="bold "+Math.max(9,Math.round(H*0.10))+"px monospace";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText("INVALID: "+String(rec.value).slice(0,24),W/2,H/2);
+    return {canvas:c,error:err};
+  }
+
+  /* ---- top row: logo (left) + value (right of logo) ---- */
+  const logo=state.logo && state.logo.ready ? state.logo.img : null;
+  const showVal=$("showValue").checked;
+  let logoPct=parseFloat($("logoPct").value); if(!isFinite(logoPct))logoPct=20;
+  logoPct=Math.min(45,Math.max(8,logoPct));
+  const headerH=(logo||showVal)?Math.round(H*logoPct/100):0;
+  let x=pad;
+  if(headerH){
+    if(logo){
+      const lh=headerH;
+      let lw=Math.round(lh*logo.width/Math.max(1,logo.height));
+      lw=Math.min(lw,Math.round(W*0.45));           // cap so value text always fits
+      ctx.drawImage(logo,x,pad,lw,lh);
+      x+=lw+Math.round(W*0.03);
+    }
+    if(showVal){
+      let fs=Math.round(headerH*0.72);
+      ctx.fillStyle="#000"; ctx.textAlign="left"; ctx.textBaseline="middle";
+      ctx.font="700 "+fs+"px 'Space Grotesk',sans-serif";
+      while(fs>7 && ctx.measureText(rec.value).width>(W-pad-x)){
+        fs--; ctx.font="700 "+fs+"px 'Space Grotesk',sans-serif";
+      }
+      ctx.fillText(rec.value,x,pad+Math.round(headerH/2));
+    }
+  }
+
+  /* ---- reserved column: vertical custom text on the right ---- */
+  const vt=($("customText").value||"").trim();
+  const vtFont=Math.max(8,Math.round(Math.min(W,H)*0.10));
+  const vtCol=vt?Math.round(vtFont*1.6):0;
+
+  /* ---- optional description strip at the bottom ---- */
+  const showDesc=$("descPos").value==="bottom" && rec.desc;
+  const descFont=Math.max(8,Math.round(H*0.08));
+  const descBlock=showDesc?Math.round(descFont*1.6):0;
+
+  /* ---- QR code ---- */
+  const qTop=pad+headerH+(headerH?Math.round(H*0.02):0);
+  const availW=W-pad*2-vtCol;
+  const availH=H-qTop-pad-descBlock;
+  const qSize=Math.max(24,Math.min(availW,availH));
+  const qc=document.createElement("canvas");
+  try{
+    new QRious({element:qc,value:rec.value,size:qSize,level:$("ecLevel").value,
+      padding:0,background:"#ffffff",foreground:"#000000"});
+  }catch(e){ return {canvas:c,error:e.message||"QR encode failed"}; }
+  const qx=pad+Math.round((availW-qSize)/2);
+  const qy=qTop+Math.max(0,Math.round((availH-qSize)/2));
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(qc,qx,qy);
+
+  /* ---- vertical custom text, reading upward, right of the QR ---- */
+  if(vt){
+    ctx.save();
+    ctx.fillStyle="#000";
+    let fs=vtFont;
+    ctx.font="600 "+fs+"px 'Space Grotesk',sans-serif";
+    const maxLen=Math.max(qSize,availH);
+    let t=vt;
+    while(fs>7 && ctx.measureText(vt).width>maxLen){
+      fs--; ctx.font="600 "+fs+"px 'Space Grotesk',sans-serif";
+    }
+    while(ctx.measureText(t).width>maxLen && t.length>3){ t=t.slice(0,-2); }
+    if(t!==vt) t=t.slice(0,-1)+"…";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.translate(W-pad-Math.round(vtCol/2), qy+Math.round(qSize/2));
+    ctx.rotate(-Math.PI/2);                 // bottom-to-top, as in the mockup
+    ctx.fillText(t,0,0);
+    ctx.restore();
+  }
+
+  if(showDesc){ drawDesc(ctx,rec.desc,W,pad,H-pad-descBlock+Math.round(descFont*0.2),descFont); }
+  return {canvas:c,error:null};
+}
+
+function drawDesc(ctx,text,W,pad,y,fs){
+  ctx.fillStyle="#000"; ctx.textAlign="center"; ctx.textBaseline="top";
+  ctx.font="600 "+fs+"px 'Space Grotesk', sans-serif";
+  let t=text; const maxW=W-pad*2;
+  while(ctx.measureText(t).width>maxW && t.length>4){ t=t.slice(0,-2); }
+  if(t!==text) t=t.slice(0,-1)+"…";
+  ctx.fillText(t,W/2,y);
+}
+
+/* ---------- preview ---------- */
+function render(){
+  const area=$("previewArea"), counts=$("counts"), note=$("previewNote");
+  if(!state.rows.length){ setBusy(true); return; }
+  const recs=getRecords();
+  if(!recs.length){
+    area.innerHTML='<div class="empty">No non-empty values in the selected barcode column.</div>';
+    counts.textContent=""; note.hidden=true;
+    setBusy(true); return;
+  }
+  const [wIn]=inches();
+  const cell=Math.min(360,Math.max(180,Math.round(wIn*110)));
+  const grid=document.createElement("div");
+  grid.className="grid"; grid.style.setProperty("--cell",cell+"px");
+
+  const previewDpi=Math.min(203,+$("dpi").value);
+  let bad=0, totalLabels=0;
+  recs.forEach(r=>totalLabels+=r.qty);
+  const shown=recs.slice(0,state.previewCap);
+
+  shown.forEach(rec=>{
+    const {canvas,error}=renderLabel(rec,previewDpi);
+    if(error)bad++;
+    const card=document.createElement("div"); card.className="label-card";
+    const paper=document.createElement("div"); paper.className="paper";
+    paper.appendChild(canvas); card.appendChild(paper);
+    const cap=document.createElement("div"); cap.className="cap";
+    cap.innerHTML=`<span>${escapeHtml(rec.value)}</span><span class="${error?"err":""}">${error?"⚠ invalid":"×"+rec.qty}</span>`;
+    card.appendChild(cap);
+    grid.appendChild(card);
+  });
+  // count invalids beyond the preview cap too
+  recs.slice(state.previewCap).forEach(rec=>{ if(quickInvalid(rec.value)) bad++; });
+
+  area.innerHTML=""; area.appendChild(grid);
+  counts.innerHTML=`${recs.length} records &middot; ${totalLabels} labels`+(bad?` &middot; <span class="bad">${bad} invalid</span>`:"");
+  if(recs.length>state.previewCap){
+    note.hidden=false;
+    note.textContent=`Showing first ${state.previewCap} of ${recs.length} records in preview. Printing and PNG export include all records.`;
+  }else note.hidden=true;
+  setBusy(false);
+}
+function quickInvalidReason(v){
+  v=String(v==null?"":v);
+  if(!v.trim()) return "empty value";
+  if(v.length>1800) return "too long for a QR code ("+v.length+" chars)";
+  return null;
+}
+function quickInvalid(v){ return quickInvalidReason(v)!==null; }
+function escapeHtml(s){ return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+
+/* ---------- print ---------- */
+$("printBtn").addEventListener("click",()=>{
+  const recs=getRecords().filter(r=>!quickInvalid(r.value));
+  if(!recs.length){ toast("Nothing valid to print."); return; }
+  const total=recs.reduce((s,r)=>s+r.qty,0);
+  if(total>1500 && !confirm(total+" labels will be sent to print. Continue?")) return;
+
+  const [wIn,hIn]=inches();
+  const dpi=+$("dpi").value;
+  // page size rule
+  let ps=document.getElementById("pageStyle");
+  if(!ps){ ps=document.createElement("style"); ps.id="pageStyle"; document.head.appendChild(ps); }
+  ps.textContent=`@page{size:${wIn}in ${hIn}in;margin:0}`;
+
+  const root=$("printRoot"); root.innerHTML="";
+  toast("Rendering "+total+" labels…",4000);
+  // render synchronously (canvas → dataURL)
+  recs.forEach(rec=>{
+    const {canvas}=renderLabel(rec,dpi);
+    const url=canvas.toDataURL("image/png");
+    for(let i=0;i<rec.qty;i++){
+      const page=document.createElement("div"); page.className="print-page";
+      const img=document.createElement("img"); img.src=url; img.alt=rec.value;
+      page.appendChild(img); root.appendChild(page);
+    }
+  });
+  // let images attach before printing
+  setTimeout(()=>window.print(),300);
+});
+
+/* ---------- zip build (shared by download + Drive upload) ---------- */
+function setBusy(disabled){
+  ["printBtn","downloadBtn","driveZipBtn","driveSaveBtn"].forEach(id=>{ $(id).disabled=disabled; });
+}
+async function buildZip(){
+  const recs=getRecords();
+  const dpi=+$("dpi").value;
+  const zip=new JSZip();
+  const folder=zip.folder("barcodes");
+  const used={};
+  let skipped=0, made=0;
+  for(const rec of recs){
+    const {canvas,error}=renderLabel(rec,dpi);
+    if(error){ skipped++; continue; }
+    let name=sanitize(rec.value);
+    if(used[name]!=null){ used[name]++; name+="_"+used[name]; } else used[name]=0;
+    const blob=await new Promise(res=>canvas.toBlob(res,"image/png"));
+    folder.file(name+".png",blob);
+    made++;
+  }
+  const blob=await zip.generateAsync({type:"blob"});
+  const [wIn,hIn]=inches();
+  const name=`barcodes_${sanitize(state.fileName||"batch")}_${wIn}x${hIn}in_${dpi}dpi.zip`;
+  return {blob,name,made,skipped};
+}
+$("downloadBtn").addEventListener("click",async()=>{
+  if(!getRecords().length) return;
+  toast("Generating PNGs…",4000);
+  const {blob,name,made,skipped}=await buildZip();
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  toast(skipped?`Done — ${made} PNGs (${skipped} invalid skipped)`:`Done — ${made} PNGs saved`);
+});
+
+window.addEventListener("load",initGoogle);
+
+
+})();
+</script>
+</body>
+</html>
